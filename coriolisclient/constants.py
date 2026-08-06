@@ -13,6 +13,60 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+LICENCE_VERSION_V1 = "v1"
+LICENCE_VERSION_V2 = "v2"
+LICENCE_VERSION_V2_SAP = "v2-sap"
+
+LICENCE_VERSIONS = [
+    LICENCE_VERSION_V1,
+    LICENCE_VERSION_V2,
+    LICENCE_VERSION_V2_SAP,
+]
+
+LICENCE_EDITION_STANDARD = "Standard"
+LICENCE_EDITION_SAP = "SAP"
+
+STANDARD_LICENCE_VERSIONS = [LICENCE_VERSION_V1, LICENCE_VERSION_V2]
+SAP_LICENCE_VERSIONS = [LICENCE_VERSION_V2_SAP]
+
+RESERVATION_TYPE_REPLICA = "replica"
+RESERVATION_TYPE_MIGRATION = "migration"
+RESERVATION_TYPE_SAP_REPLICA = "sap_replica"
+RESERVATION_TYPE_SAP_MIGRATION = "sap_migration"
+
+STANDARD_RESERVATION_TYPES = [
+    RESERVATION_TYPE_REPLICA,
+    RESERVATION_TYPE_MIGRATION,
+]
+SAP_RESERVATION_TYPES = [
+    RESERVATION_TYPE_SAP_REPLICA,
+    RESERVATION_TYPE_SAP_MIGRATION,
+]
+
+RESERVATION_TYPES = STANDARD_RESERVATION_TYPES + SAP_RESERVATION_TYPES
+
+LICENCE_STATS_KEY_STANDARD = "standard_licence_stats"
+LICENCE_STATS_KEY_SAP = "sap_licence_stats"
+
+LICENCE_STATS_FIELDS = (
+    "current_performed_migrations",
+    "current_performed_replicas",
+    "current_available_migrations",
+    "current_available_replicas",
+    "lifetime_performed_migrations",
+    "lifetime_performed_replicas",
+    "lifetime_available_migrations",
+    "lifetime_available_replicas",
+)
+
+LICENCE_STATS_ALLOWANCE_FIELDS = (
+    "current_available_migrations",
+    "current_available_replicas",
+    "lifetime_available_migrations",
+    "lifetime_available_replicas",
+)
+
+
 MIGRATION_STATUS_RUNNING = "RUNNING"
 MIGRATION_STATUS_COMPLETED = "COMPLETED"
 MIGRATION_STATUS_ERROR = "ERROR"

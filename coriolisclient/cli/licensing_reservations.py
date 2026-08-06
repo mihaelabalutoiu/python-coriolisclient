@@ -17,6 +17,7 @@ from cliff import lister
 from cliff import show
 
 from coriolisclient.cli import formatter
+from coriolisclient.v1 import licensing as licensing_api
 
 
 class ReservationFormatter(formatter.EntityFormatter):
@@ -24,6 +25,7 @@ class ReservationFormatter(formatter.EntityFormatter):
                "Appliance ID",
                "Licence ID",
                "Type",
+               "Licence Edition",
                "Count",
                "Created At",
                )
@@ -36,6 +38,7 @@ class ReservationFormatter(formatter.EntityFormatter):
                 obj.appliance_id,
                 obj.licence_id,
                 obj.type,
+                licensing_api.get_reservation_edition(obj.type),
                 obj.count,
                 obj.created_at,
                 )

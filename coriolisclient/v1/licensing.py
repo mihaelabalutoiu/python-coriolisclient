@@ -19,14 +19,154 @@ import logging
 import requests
 
 from coriolisclient import base
+from coriolisclient import constants
 from coriolisclient import exceptions
 
 LOG = logging.getLogger(__name__)
 _LICENSING_ENDPOINT_NAME = "coriolis-licensing"
 
 
+def get_licence_edition(licence_version):
+    """Returns the user-facing edition name of a licence version identifier.
+
+    Licences which predate licence versioning carry no version and are
+    standard licences, as are all the explicitly versioned 'v1'/'v2' ones.
+    Unknown identifiers are returned as-is rather than being misreported as
+    standard licences.
+    """
+    if licence_version in constants.SAP_LICENCE_VERSIONS:
+        return constants.LICENCE_EDITION_SAP
+    if not licence_version or (
+            licence_version in constants.STANDARD_LICENCE_VERSIONS):
+        return constants.LICENCE_EDITION_STANDARD
+    return licence_version
+
+
+def get_reservation_edition(reservation_type):
+    """Returns the user-facing edition name a reservation counts against.
+
+    Returns `None` for reservation types this client does not know about.
+    """
+    if reservation_type in constants.SAP_RESERVATION_TYPES:
+        return constants.LICENCE_EDITION_SAP
+    if reservation_type in constants.STANDARD_RESERVATION_TYPES:
+        return constants.LICENCE_EDITION_STANDARD
+    return None
+
+
+def _normalize_licence_stats(stats, stats_key, warn_on_unknown=True):
+    """Returns a stats body with every known usage counter defaulted to 0.
+
+    :param stats: the raw stats mapping as returned by the licensing server
+    :param stats_key: the name of the stats body, used for error reporting
+    :param warn_on_unknown: whether to warn about fields which are not known
+        usage counters. Disabled when normalizing a legacy status body, whose
+        counters sit alongside unrelated top-level fields.
+    """
+    if not isinstance(stats, dict):
+        raise ValueError(
+            "Invalid '%s' in appliance licensing status, expected a JSON "
+            "object but got: %r" % (stats_key, stats))
+
+    normalized = {}
+    for field in constants.LICENCE_STATS_FIELDS:
+        value = stats.get(field)
+        if value is None:
+            value = 0
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(
+                "Invalid value %r for licensing counter '%s' of '%s' in the "
+                "appliance licensing status, expected an integer." % (
+                    value, field, stats_key))
+        normalized[field] = value
+
+    if warn_on_unknown:
+        unknown = set(stats) - set(constants.LICENCE_STATS_FIELDS)
+        if unknown:
+            LOG.warning(
+                "Ignoring unrecognized field(s) %s in the '%s' of the "
+                "appliance licensing status. This version of the Coriolis "
+                "client may be older than the licensing server.",
+                sorted(unknown), stats_key)
+
+    return normalized
+
+
+def normalize_appliance_licence_status(status):
+    """Normalizes an appliance licensing status body.
+
+    The licensing server buckets the usage counters per licence edition
+    (under 'standard_licence_stats' and 'sap_licence_stats') ever since the
+    SAP licence type was introduced. Licensing servers which predate it
+    returned a single flat set of counters covering all licences, which were
+    necessarily standard ones, so those get mapped onto the standard bucket.
+
+    Both bodies are additionally given the sum of the two editions' counters
+    at the top level, which is exactly what the flat counters used to mean.
+
+    Any other field of the status body is passed through untouched.
+    """
+    if not isinstance(status, dict):
+        raise ValueError(
+            "Invalid appliance licensing status, expected a JSON object but "
+            "got: %r" % (status,))
+
+    normalized = dict(status)
+
+    standard = status.get(constants.LICENCE_STATS_KEY_STANDARD)
+    legacy = standard is None
+    if legacy:
+        LOG.debug(
+            "Appliance licensing status has no '%s', assuming the legacy "
+            "flat status format.", constants.LICENCE_STATS_KEY_STANDARD)
+        standard = status
+    normalized[constants.LICENCE_STATS_KEY_STANDARD] = (
+        _normalize_licence_stats(
+            standard, constants.LICENCE_STATS_KEY_STANDARD,
+            warn_on_unknown=not legacy))
+
+    sap = status.get(constants.LICENCE_STATS_KEY_SAP)
+    normalized[constants.LICENCE_STATS_KEY_SAP] = _normalize_licence_stats(
+        {} if sap is None else sap, constants.LICENCE_STATS_KEY_SAP)
+
+    for field in constants.LICENCE_STATS_FIELDS:
+        normalized[field] = (
+            normalized[constants.LICENCE_STATS_KEY_STANDARD][field] +
+            normalized[constants.LICENCE_STATS_KEY_SAP][field])
+
+    return normalized
+
+
 class Licence(base.Resource):
     pass
+
+
+class ApplianceLicenceStatus(base.Resource):
+    """The licensing status of an appliance.
+
+    On top of the fields returned by the licensing server, the usage counters
+    of both licence editions are always present (defaulted to zeroes), and
+    the top-level counters hold the sum of the two editions.
+    """
+
+    @property
+    def licence_editions(self):
+        """The editions the appliance holds licences for, in display order.
+
+        Empty for an appliance which was never issued any licence at all.
+        """
+        editions = []
+        stats_keys = [
+            (constants.LICENCE_STATS_KEY_STANDARD,
+             constants.LICENCE_EDITION_STANDARD),
+            (constants.LICENCE_STATS_KEY_SAP,
+             constants.LICENCE_EDITION_SAP)]
+        for stats_key, edition in stats_keys:
+            stats = getattr(self, stats_key)
+            if any(stats.get(field)
+                   for field in constants.LICENCE_STATS_ALLOWANCE_FIELDS):
+                editions.append(edition)
+        return editions
 
 
 class LicensingClient(object):
@@ -122,7 +262,8 @@ class LicensingManager(base.BaseManager):
         url = '/appliances/%s/status' % appliance_id
         data = self._licensing_cli.get(
             url, response_key='appliance_licence_status')
-        return self.resource_class(self, data, loaded=True)
+        return ApplianceLicenceStatus(
+            self, normalize_appliance_licence_status(data), loaded=True)
 
     def list(self, appliance_id):
         url = '/appliances/%s/licences' % appliance_id
