@@ -5,9 +5,34 @@ from unittest import mock
 
 import requests
 
+from coriolisclient import constants
 from coriolisclient import exceptions
 from coriolisclient.tests import test_base
 from coriolisclient.v1 import licensing
+
+_STANDARD_STATS = {
+    'current_performed_migrations': 1,
+    'current_performed_replicas': 2,
+    'current_available_migrations': 3,
+    'current_available_replicas': 4,
+    'lifetime_performed_migrations': 5,
+    'lifetime_performed_replicas': 6,
+    'lifetime_available_migrations': 7,
+    'lifetime_available_replicas': 8,
+}
+
+_SAP_STATS = {
+    'current_performed_migrations': 10,
+    'current_performed_replicas': 20,
+    'current_available_migrations': 30,
+    'current_available_replicas': 40,
+    'lifetime_performed_migrations': 50,
+    'lifetime_performed_replicas': 60,
+    'lifetime_available_migrations': 70,
+    'lifetime_available_replicas': 80,
+}
+
+_EMPTY_STATS = dict.fromkeys(constants.LICENCE_STATS_FIELDS, 0)
 
 
 class LicensingClientTestCase(
@@ -277,21 +302,31 @@ class LicensingManagerTestCase(
         self.licence._licensing_cli = mock_LicensingClient
 
     def test_status(self):
-        mock_resource_class = mock.Mock()
-        self.licence.resource_class = mock_resource_class
+        self.licence._licensing_cli.get.return_value = {
+            'appliance_id': 'appliance-1',
+            'earliest_licence_expiry_time': '2026-04-18T13:13:35Z',
+            'latest_licence_expiry_time': '2026-05-19T12:40:21Z',
+            constants.LICENCE_STATS_KEY_STANDARD: _STANDARD_STATS,
+            constants.LICENCE_STATS_KEY_SAP: _SAP_STATS,
+        }
 
         result = self.licence.status(mock.sentinel.appliance_id)
 
-        self.assertEqual(
-            mock_resource_class.return_value,
-            result
-        )
         self.licence._licensing_cli.get.assert_called_once_with(
             '/appliances/%s/status' % mock.sentinel.appliance_id,
             response_key='appliance_licence_status')
-        mock_resource_class.assert_called_once_with(
-            self.licence, self.licence._licensing_cli.get.return_value,
-            loaded=True)
+        self.assertIsInstance(result, licensing.ApplianceLicenceStatus)
+        self.assertEqual('appliance-1', result.appliance_id)
+        self.assertEqual(
+            _STANDARD_STATS,
+            getattr(result, constants.LICENCE_STATS_KEY_STANDARD))
+        self.assertEqual(
+            _SAP_STATS, getattr(result, constants.LICENCE_STATS_KEY_SAP))
+        # the top-level counters hold the totals across both editions:
+        self.assertEqual(
+            11, result.current_performed_migrations)
+        self.assertEqual(
+            ['Standard', 'SAP'], result.licence_editions)
 
     def test_list(self):
         mock_resource_class = mock.Mock()
@@ -369,3 +404,151 @@ class LicensingManagerTestCase(
             '/appliances/%s/licences/%s' % (mock.sentinel.appliance_id,
                                             mock.sentinel.licence_id),
             raw_response=True)
+
+
+class LicenceEditionTestCase(test_base.CoriolisBaseTestCase):
+    """Test suite for the licence/reservation edition helpers."""
+
+    def test_get_licence_edition(self):
+        for version in constants.STANDARD_LICENCE_VERSIONS:
+            self.assertEqual(
+                constants.LICENCE_EDITION_STANDARD,
+                licensing.get_licence_edition(version))
+        for version in constants.SAP_LICENCE_VERSIONS:
+            self.assertEqual(
+                constants.LICENCE_EDITION_SAP,
+                licensing.get_licence_edition(version))
+
+    def test_get_licence_edition_unversioned(self):
+        # licences which predate licence versioning are standard ones:
+        for version in [None, ""]:
+            self.assertEqual(
+                constants.LICENCE_EDITION_STANDARD,
+                licensing.get_licence_edition(version))
+
+    def test_get_licence_edition_unknown(self):
+        self.assertEqual(
+            "v3-something", licensing.get_licence_edition("v3-something"))
+
+    def test_get_reservation_edition(self):
+        for reservation_type in constants.STANDARD_RESERVATION_TYPES:
+            self.assertEqual(
+                constants.LICENCE_EDITION_STANDARD,
+                licensing.get_reservation_edition(reservation_type))
+        for reservation_type in constants.SAP_RESERVATION_TYPES:
+            self.assertEqual(
+                constants.LICENCE_EDITION_SAP,
+                licensing.get_reservation_edition(reservation_type))
+
+    def test_get_reservation_edition_unknown(self):
+        self.assertIsNone(licensing.get_reservation_edition("something"))
+        self.assertIsNone(licensing.get_reservation_edition(None))
+
+
+class NormalizeApplianceLicenceStatusTestCase(test_base.CoriolisBaseTestCase):
+    """Test suite for the appliance licensing status normalization."""
+
+    def test_current_format(self):
+        status = {
+            'appliance_id': 'appliance-1',
+            'earliest_licence_expiry_time': '2026-04-18T13:13:35Z',
+            constants.LICENCE_STATS_KEY_STANDARD: dict(_STANDARD_STATS),
+            constants.LICENCE_STATS_KEY_SAP: dict(_SAP_STATS),
+        }
+
+        result = licensing.normalize_appliance_licence_status(status)
+
+        self.assertEqual('appliance-1', result['appliance_id'])
+        self.assertEqual(
+            '2026-04-18T13:13:35Z', result['earliest_licence_expiry_time'])
+        self.assertEqual(
+            _STANDARD_STATS, result[constants.LICENCE_STATS_KEY_STANDARD])
+        self.assertEqual(_SAP_STATS, result[constants.LICENCE_STATS_KEY_SAP])
+        for field in constants.LICENCE_STATS_FIELDS:
+            self.assertEqual(
+                _STANDARD_STATS[field] + _SAP_STATS[field], result[field])
+
+    def test_legacy_flat_format(self):
+        """A pre-SAP licensing server reports flat counters, all standard."""
+        status = {'appliance_id': 'appliance-1'}
+        status.update(_STANDARD_STATS)
+
+        result = licensing.normalize_appliance_licence_status(status)
+
+        self.assertEqual(
+            _STANDARD_STATS, result[constants.LICENCE_STATS_KEY_STANDARD])
+        self.assertEqual(
+            _EMPTY_STATS, result[constants.LICENCE_STATS_KEY_SAP])
+        for field in constants.LICENCE_STATS_FIELDS:
+            self.assertEqual(_STANDARD_STATS[field], result[field])
+
+    def test_missing_stats_bodies_default_to_zeroes(self):
+        result = licensing.normalize_appliance_licence_status(
+            {'appliance_id': 'appliance-1',
+             constants.LICENCE_STATS_KEY_STANDARD: {}})
+
+        self.assertEqual(
+            _EMPTY_STATS, result[constants.LICENCE_STATS_KEY_STANDARD])
+        self.assertEqual(
+            _EMPTY_STATS, result[constants.LICENCE_STATS_KEY_SAP])
+
+    def test_does_not_mutate_the_input(self):
+        status = {constants.LICENCE_STATS_KEY_STANDARD: dict(_STANDARD_STATS)}
+
+        licensing.normalize_appliance_licence_status(status)
+
+        self.assertEqual(
+            {constants.LICENCE_STATS_KEY_STANDARD: _STANDARD_STATS}, status)
+
+    def test_invalid_status_body(self):
+        self.assertRaises(
+            ValueError, licensing.normalize_appliance_licence_status, None)
+
+    def test_invalid_stats_body(self):
+        self.assertRaises(
+            ValueError, licensing.normalize_appliance_licence_status,
+            {constants.LICENCE_STATS_KEY_SAP: "not-an-object"})
+
+    def test_invalid_counter_value(self):
+        stats = dict(_STANDARD_STATS)
+        stats['current_performed_migrations'] = "many"
+
+        self.assertRaises(
+            ValueError, licensing.normalize_appliance_licence_status,
+            {constants.LICENCE_STATS_KEY_STANDARD: stats})
+
+
+class ApplianceLicenceStatusTestCase(test_base.CoriolisBaseTestCase):
+    """Test suite for the `ApplianceLicenceStatus` resource."""
+
+    def _make_status(self, standard_stats, sap_stats):
+        return licensing.ApplianceLicenceStatus(
+            mock.Mock(),
+            licensing.normalize_appliance_licence_status({
+                constants.LICENCE_STATS_KEY_STANDARD: standard_stats,
+                constants.LICENCE_STATS_KEY_SAP: sap_stats}),
+            loaded=True)
+
+    def test_licence_editions_standard_only(self):
+        status = self._make_status(_STANDARD_STATS, dict(_EMPTY_STATS))
+        self.assertEqual(['Standard'], status.licence_editions)
+
+    def test_licence_editions_sap_only(self):
+        status = self._make_status(dict(_EMPTY_STATS), _SAP_STATS)
+        self.assertEqual(['SAP'], status.licence_editions)
+
+    def test_licence_editions_both(self):
+        status = self._make_status(_STANDARD_STATS, _SAP_STATS)
+        self.assertEqual(['Standard', 'SAP'], status.licence_editions)
+
+    def test_licence_editions_none(self):
+        status = self._make_status(dict(_EMPTY_STATS), dict(_EMPTY_STATS))
+        self.assertEqual([], status.licence_editions)
+
+    def test_licence_editions_ignores_usage_without_allowance(self):
+        """Usage counters alone do not make an edition licenced."""
+        stats = dict(_EMPTY_STATS)
+        stats['lifetime_performed_replicas'] = 3
+        status = self._make_status(_STANDARD_STATS, stats)
+
+        self.assertEqual(['Standard'], status.licence_editions)

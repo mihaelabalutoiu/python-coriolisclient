@@ -7,6 +7,7 @@ from cliff import lister
 from cliff import show
 
 from coriolisclient.cli import licensing_reservations
+from coriolisclient import constants
 from coriolisclient.tests import test_base
 
 
@@ -33,12 +34,12 @@ class ReservationFormatterTestCase(test_base.CoriolisBaseTestCase):
             result
         )
 
-    def test_get_formatted_data(self):
+    def _assert_formatted(self, reservation_type, licence_edition):
         obj = mock.Mock()
         obj.id = mock.sentinel.id
         obj.appliance_id = mock.sentinel.appliance_id
         obj.licence_id = mock.sentinel.licence_id
-        obj.type = mock.sentinel.type
+        obj.type = reservation_type
         obj.count = mock.sentinel.count
         obj.created_at = mock.sentinel.created_at
 
@@ -49,12 +50,26 @@ class ReservationFormatterTestCase(test_base.CoriolisBaseTestCase):
                 mock.sentinel.id,
                 mock.sentinel.appliance_id,
                 mock.sentinel.licence_id,
-                mock.sentinel.type,
+                reservation_type,
+                licence_edition,
                 mock.sentinel.count,
                 mock.sentinel.created_at
             ),
             result
         )
+
+    def test_get_formatted_data(self):
+        for reservation_type in constants.STANDARD_RESERVATION_TYPES:
+            self._assert_formatted(
+                reservation_type, constants.LICENCE_EDITION_STANDARD)
+
+    def test_get_formatted_data_sap(self):
+        for reservation_type in constants.SAP_RESERVATION_TYPES:
+            self._assert_formatted(
+                reservation_type, constants.LICENCE_EDITION_SAP)
+
+    def test_get_formatted_data_unknown_type(self):
+        self._assert_formatted("something", None)
 
 
 class ReservationListTestCase(test_base.CoriolisBaseTestCase):

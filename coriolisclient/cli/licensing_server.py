@@ -16,21 +16,33 @@
 from cliff import show
 
 from coriolisclient.cli import formatter
+from coriolisclient.v1 import licensing as licensing_api
 
 
 class ServerStatusFormatter(formatter.EntityFormatter):
     columns = [
         "Hostname", "Multi-appliance",
-        "Supported Licence Versions", "Server Time"]
+        "Supported Licence Versions",
+        "Supported Licence Editions",
+        "Server Time"]
 
     def _get_sorted_list(self, obj_list):
         return sorted(obj_list, key=lambda o: o.hostname)
+
+    def _get_editions(self, licence_versions):
+        editions = []
+        for version in licence_versions or []:
+            edition = licensing_api.get_licence_edition(version)
+            if edition not in editions:
+                editions.append(edition)
+        return ", ".join(editions) or None
 
     def _get_formatted_data(self, obj):
         data = [
             obj.hostname,
             obj.multi_appliance,
             obj.supported_licence_versions,
+            self._get_editions(obj.supported_licence_versions),
             obj.server_local_time]
         return data
 

@@ -20,6 +20,8 @@ from cliff import lister
 from cliff import show
 
 from coriolisclient.cli import formatter
+from coriolisclient import constants
+from coriolisclient.v1 import licensing as licensing_api
 
 
 class LicensingStatusFormatter(formatter.EntityFormatter):
@@ -27,31 +29,36 @@ class LicensingStatusFormatter(formatter.EntityFormatter):
     def __init__(self):
         self.columns = [
             "appliance_id",
+            "licence_editions",
             "earliest_licence_expiry_time",
             "latest_licence_expiry_time",
-            "current_performed_migrations",
-            "current_performed_replicas",
-            "current_available_migrations",
-            "current_available_replicas",
-            "lifetime_performed_migrations",
-            "lifetime_performed_replicas",
-            "lifetime_available_migrations",
-            "lifetime_available_replicas",
         ]
+        # totals across all the licence editions:
+        self.columns.extend(constants.LICENCE_STATS_FIELDS)
+        # per-edition breakdown:
+        self.columns.extend(
+            "standard_%s" % field
+            for field in constants.LICENCE_STATS_FIELDS)
+        self.columns.extend(
+            "sap_%s" % field for field in constants.LICENCE_STATS_FIELDS)
 
     def _get_formatted_data(self, obj):
+        standard_stats = getattr(
+            obj, constants.LICENCE_STATS_KEY_STANDARD)
+        sap_stats = getattr(obj, constants.LICENCE_STATS_KEY_SAP)
+
         data = [obj.appliance_id,
+                ", ".join(obj.licence_editions) or None,
                 obj.earliest_licence_expiry_time,
                 obj.latest_licence_expiry_time,
-                obj.current_performed_migrations,
-                obj.current_performed_replicas,
-                obj.current_available_migrations,
-                obj.current_available_replicas,
-                obj.lifetime_performed_migrations,
-                obj.lifetime_performed_replicas,
-                obj.lifetime_available_migrations,
-                obj.lifetime_available_replicas,
                 ]
+        data.extend(
+            getattr(obj, field) for field in constants.LICENCE_STATS_FIELDS)
+        data.extend(
+            standard_stats[field]
+            for field in constants.LICENCE_STATS_FIELDS)
+        data.extend(
+            sap_stats[field] for field in constants.LICENCE_STATS_FIELDS)
 
         return data
 
@@ -65,12 +72,16 @@ class LicenceFormatter(formatter.EntityFormatter):
                "Period End",
                "Period Duration",
                "Licence Version",
+               "Licence Edition",
                )
 
     def _get_sorted_list(self, obj_list):
         return sorted(obj_list, key=lambda o: o.period_end)
 
     def _get_formatted_data(self, obj):
+        # NOTE: licences issued before licence versioning was introduced
+        # carry no version at all:
+        licence_version = getattr(obj, 'licence_version', None)
         data = (obj.id,
                 obj.issue_date,
                 obj.migrations,
@@ -78,14 +89,20 @@ class LicenceFormatter(formatter.EntityFormatter):
                 obj.period_start,
                 obj.period_end,
                 obj.period_duration,
-                obj.licence_version,
+                licence_version,
+                licensing_api.get_licence_edition(licence_version),
                 )
 
         return data
 
 
 class LicensingApplianceStatus(show.ShowOne):
-    """ Retrieves Licensing Status for the given appliance. """
+    """ Retrieves Licensing Status for the given appliance.
+
+    The usage counters are reported as a total across all the licence
+    editions the appliance holds, followed by a per-edition breakdown under
+    the 'standard_*' and 'sap_*' fields.
+    """
 
     def get_parser(self, prog_name):
         parser = super().get_parser(prog_name)

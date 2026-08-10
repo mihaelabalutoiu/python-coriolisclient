@@ -32,12 +32,11 @@ class ServerStatusFormatterTestCase(test_base.CoriolisBaseTestCase):
             result
         )
 
-    def test_get_formatted_data(self):
+    def _assert_formatted(self, supported_licence_versions, editions):
         obj = mock.Mock()
         obj.hostname = mock.sentinel.hostname
         obj.multi_appliance = mock.sentinel.multi_appliance
-        obj.supported_licence_versions = \
-            mock.sentinel.supported_licence_versions
+        obj.supported_licence_versions = supported_licence_versions
         obj.server_local_time = mock.sentinel.server_local_time
 
         result = self.server._get_formatted_data(obj)
@@ -46,11 +45,28 @@ class ServerStatusFormatterTestCase(test_base.CoriolisBaseTestCase):
             [
                 mock.sentinel.hostname,
                 mock.sentinel.multi_appliance,
-                mock.sentinel.supported_licence_versions,
+                supported_licence_versions,
+                editions,
                 mock.sentinel.server_local_time,
             ],
             result
         )
+
+    def test_get_formatted_data(self):
+        """A server which predates the SAP licence type offers Standard."""
+        self._assert_formatted(["v1", "v2"], "Standard")
+
+    def test_get_formatted_data_sap(self):
+        # each edition is only listed once, no matter how many of its
+        # licence versions the server supports:
+        self._assert_formatted(["v1", "v2", "v2-sap"], "Standard, SAP")
+
+    def test_get_formatted_data_sap_only(self):
+        self._assert_formatted(["v2-sap"], "SAP")
+
+    def test_get_formatted_data_no_versions(self):
+        self._assert_formatted([], None)
+        self._assert_formatted(None, None)
 
 
 class ServerStatusTestCase(test_base.CoriolisBaseTestCase):
