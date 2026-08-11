@@ -20,6 +20,7 @@ from cliff import lister
 from cliff import show
 
 from coriolisclient.cli import formatter
+from coriolisclient import constants
 
 
 class LicensingStatusFormatter(formatter.EntityFormatter):
@@ -29,29 +30,26 @@ class LicensingStatusFormatter(formatter.EntityFormatter):
             "appliance_id",
             "earliest_licence_expiry_time",
             "latest_licence_expiry_time",
-            "current_performed_migrations",
-            "current_performed_replicas",
-            "current_available_migrations",
-            "current_available_replicas",
-            "lifetime_performed_migrations",
-            "lifetime_performed_replicas",
-            "lifetime_available_migrations",
-            "lifetime_available_replicas",
         ]
+        self.columns.extend(
+            "standard_%s" % field
+            for field in constants.LICENCE_STATS_FIELDS)
+        self.columns.extend(
+            "sap_%s" % field for field in constants.LICENCE_STATS_FIELDS)
 
     def _get_formatted_data(self, obj):
+        standard_stats = getattr(obj, constants.LICENCE_STATS_KEY_STANDARD)
+        sap_stats = getattr(obj, constants.LICENCE_STATS_KEY_SAP)
+
         data = [obj.appliance_id,
                 obj.earliest_licence_expiry_time,
                 obj.latest_licence_expiry_time,
-                obj.current_performed_migrations,
-                obj.current_performed_replicas,
-                obj.current_available_migrations,
-                obj.current_available_replicas,
-                obj.lifetime_performed_migrations,
-                obj.lifetime_performed_replicas,
-                obj.lifetime_available_migrations,
-                obj.lifetime_available_replicas,
                 ]
+        data.extend(
+            standard_stats[field]
+            for field in constants.LICENCE_STATS_FIELDS)
+        data.extend(
+            sap_stats[field] for field in constants.LICENCE_STATS_FIELDS)
 
         return data
 
@@ -65,6 +63,7 @@ class LicenceFormatter(formatter.EntityFormatter):
                "Period End",
                "Period Duration",
                "Licence Version",
+               "Licence Edition",
                )
 
     def _get_sorted_list(self, obj_list):
@@ -79,6 +78,8 @@ class LicenceFormatter(formatter.EntityFormatter):
                 obj.period_end,
                 obj.period_duration,
                 obj.licence_version,
+                constants.LICENCE_TYPE_EDITION_MAP.get(
+                    obj.licence_version),
                 )
 
         return data
