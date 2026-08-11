@@ -8,6 +8,7 @@ from cliff import lister
 from cliff import show
 
 from coriolisclient.cli import licensing
+from coriolisclient import constants
 from coriolisclient.tests import test_base
 
 
@@ -18,29 +19,42 @@ class LicensingStatusFormatterTestCase(test_base.CoriolisBaseTestCase):
         super(LicensingStatusFormatterTestCase, self).setUp()
         self.licence = licensing.LicensingStatusFormatter()
 
-    def test_get_formatted_data(self):
+    @staticmethod
+    def _make_stats(offset):
+        """Builds a stats body whose counters are all distinguishable."""
+        return {
+            field: offset + i
+            for i, field in enumerate(constants.LICENCE_STATS_FIELDS)}
+
+    def _make_status(self, standard_stats, sap_stats):
         obj = mock.Mock()
         obj.appliance_id = mock.sentinel.appliance_id
         obj.earliest_licence_expiry_time = \
             mock.sentinel.earliest_licence_expiry_time
         obj.latest_licence_expiry_time = \
             mock.sentinel.latest_licence_expiry_time
-        obj.current_performed_migrations = \
-            mock.sentinel.current_performed_migrations
-        obj.current_performed_replicas = \
-            mock.sentinel.current_performed_replicas
-        obj.current_available_migrations = \
-            mock.sentinel.current_available_migrations
-        obj.current_available_replicas = \
-            mock.sentinel.current_available_replicas
-        obj.lifetime_performed_migrations = \
-            mock.sentinel.lifetime_performed_migrations
-        obj.lifetime_performed_replicas = \
-            mock.sentinel.lifetime_performed_replicas
-        obj.lifetime_available_migrations = \
-            mock.sentinel.lifetime_available_migrations
-        obj.lifetime_available_replicas = \
-            mock.sentinel.lifetime_available_replicas
+        setattr(obj, constants.LICENCE_STATS_KEY_STANDARD, standard_stats)
+        setattr(obj, constants.LICENCE_STATS_KEY_SAP, sap_stats)
+        return obj
+
+    def test_columns(self):
+        self.assertEqual(
+            [
+                "appliance_id",
+                "earliest_licence_expiry_time",
+                "latest_licence_expiry_time",
+            ] + [
+                "standard_%s" % f for f in constants.LICENCE_STATS_FIELDS
+            ] + [
+                "sap_%s" % f for f in constants.LICENCE_STATS_FIELDS
+            ],
+            self.licence.columns
+        )
+
+    def test_get_formatted_data(self):
+        standard_stats = self._make_stats(0)
+        sap_stats = self._make_stats(100)
+        obj = self._make_status(standard_stats, sap_stats)
 
         result = self.licence._get_formatted_data(obj)
 
@@ -49,16 +63,29 @@ class LicensingStatusFormatterTestCase(test_base.CoriolisBaseTestCase):
                 mock.sentinel.appliance_id,
                 mock.sentinel.earliest_licence_expiry_time,
                 mock.sentinel.latest_licence_expiry_time,
-                mock.sentinel.current_performed_migrations,
-                mock.sentinel.current_performed_replicas,
-                mock.sentinel.current_available_migrations,
-                mock.sentinel.current_available_replicas,
-                mock.sentinel.lifetime_performed_migrations,
-                mock.sentinel.lifetime_performed_replicas,
-                mock.sentinel.lifetime_available_migrations,
-                mock.sentinel.lifetime_available_replicas
+            ] + [
+                standard_stats[f] for f in constants.LICENCE_STATS_FIELDS
+            ] + [
+                sap_stats[f] for f in constants.LICENCE_STATS_FIELDS
             ],
             result
+        )
+        self.assertEqual(len(self.licence.columns), len(result))
+
+    def test_get_formatted_data_standard_only(self):
+        standard_stats = self._make_stats(0)
+        sap_stats = dict.fromkeys(constants.LICENCE_STATS_FIELDS, 0)
+        obj = self._make_status(standard_stats, sap_stats)
+
+        result = self.licence._get_formatted_data(obj)
+
+        self.assertEqual(
+            [standard_stats[f] for f in constants.LICENCE_STATS_FIELDS],
+            result[3:3 + len(constants.LICENCE_STATS_FIELDS)]
+        )
+        self.assertEqual(
+            [0] * len(constants.LICENCE_STATS_FIELDS),
+            result[-len(constants.LICENCE_STATS_FIELDS):]
         )
 
 
@@ -85,7 +112,7 @@ class LicenceFormatterTestCase(test_base.CoriolisBaseTestCase):
             result
         )
 
-    def test_get_formatted_data(self):
+    def _assert_formatted(self, licence_version, licence_edition):
         obj = mock.Mock()
         obj.id = mock.sentinel.id
         obj.issue_date = mock.sentinel.issue_date
@@ -94,9 +121,7 @@ class LicenceFormatterTestCase(test_base.CoriolisBaseTestCase):
         obj.period_start = mock.sentinel.period_start
         obj.period_end = mock.sentinel.period_end
         obj.period_duration = mock.sentinel.period_duration
-        obj.licence_version = mock.sentinel.licence_version
-
-        result = self.licence._get_formatted_data(obj)
+        obj.licence_version = licence_version
 
         self.assertEqual(
             (
@@ -107,10 +132,27 @@ class LicenceFormatterTestCase(test_base.CoriolisBaseTestCase):
                 mock.sentinel.period_start,
                 mock.sentinel.period_end,
                 mock.sentinel.period_duration,
-                mock.sentinel.licence_version
+                licence_version,
+                licence_edition,
             ),
-            result
+            self.licence._get_formatted_data(obj)
         )
+
+    def test_get_formatted_data(self):
+        self._assert_formatted(
+            constants.LICENCE_VERSION_V2, constants.LICENCE_EDITION_STANDARD)
+
+    def test_get_formatted_data_sap(self):
+        self._assert_formatted(
+            constants.LICENCE_VERSION_V2_SAP, constants.LICENCE_EDITION_SAP)
+
+    def test_get_formatted_data_v1(self):
+        self._assert_formatted(
+            constants.LICENCE_VERSION_V1, constants.LICENCE_EDITION_STANDARD)
+
+    def test_get_formatted_data_unknown_version(self):
+        # an unknown version must not be misreported as a known edition:
+        self._assert_formatted("v3-something", None)
 
 
 class LicensingApplianceStatusTestCase(test_base.CoriolisBaseTestCase):
