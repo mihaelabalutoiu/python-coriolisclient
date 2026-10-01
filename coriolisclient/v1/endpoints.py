@@ -76,10 +76,13 @@ class EndpointManager(base.BaseManager):
         resp = self.client.get(url, headers={'Accept': 'text/csv'})
         return resp.text
 
-    def validate_connection(self, endpoint):
+    def validate_connection(self, platform, connection_info, regions=None):
         data = self.client.post(
-            '/endpoints/%s/actions' % base.getid(endpoint),
-            json={'validate-connection': None}).json()
+            '/endpoints/actions',
+            json={'validate-connection': {
+                "platform": platform,
+                "connection_info": connection_info,
+                "mapped_regions": regions or []}}).json()
         validate_data = data["validate-connection"]
         return validate_data.get("valid"), validate_data.get("message")
 

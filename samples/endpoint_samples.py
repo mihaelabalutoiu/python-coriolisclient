@@ -112,7 +112,10 @@ def validate_endpoint(coriolis, endpoint, raise_on_error=True):
     :param endpoint: endpoint object or ID
     :return: (bool, str) tuple containing the result and possible errors
     """
-    is_valid, error_msg = coriolis.endpoints.validate_connection(endpoint)
+    endpoint = coriolis.endpoints.get(endpoint)
+    is_valid, error_msg = coriolis.endpoints.validate_connection(
+        endpoint.type, endpoint.connection_info.to_dict(),
+        regions=endpoint.mapped_regions)
 
     if raise_on_error and not is_valid:
         raise Exception("Endpoint validation failed: %s" % error_msg)

@@ -213,6 +213,10 @@ class CreateEndpointTestCase(test_base.CoriolisBaseTestCase):
             result
         )
         mock_get_connection_info_from_args.assert_called_once_with(args)
+        mock_validate_connection.assert_called_once_with(
+            mock.sentinel.provider,
+            mock_get_connection_info_from_args.return_value,
+            regions=mock.sentinel.regions)
         mock_create.assert_called_once_with(
             mock.sentinel.name,
             mock.sentinel.provider,
@@ -220,8 +224,6 @@ class CreateEndpointTestCase(test_base.CoriolisBaseTestCase):
             mock.sentinel.description,
             regions=mock.sentinel.regions,
         )
-        mock_validate_connection.assert_called_once_with(
-            mock_create.return_value.id)
         mock_get_formatted_entity.assert_called_once_with(
             mock_create.return_value)
 
@@ -266,15 +268,11 @@ class CreateEndpointTestCase(test_base.CoriolisBaseTestCase):
         )
 
         mock_get_connection_info_from_args.assert_called_once_with(args)
-        mock_create.assert_called_once_with(
-            mock.sentinel.name,
+        mock_validate_connection.assert_called_once_with(
             mock.sentinel.provider,
             mock_get_connection_info_from_args.return_value,
-            mock.sentinel.description,
-            regions=mock.sentinel.regions,
-        )
-        mock_validate_connection.assert_called_once_with(
-            mock_create.return_value.id)
+            regions=mock.sentinel.regions)
+        mock_create.assert_not_called()
         mock_get_formatted_entity.assert_not_called()
 
 
@@ -508,8 +506,12 @@ class EndpointValidateConnectionTestCase(test_base.CoriolisBaseTestCase):
 
         mock_endpoint.get_endpoint_id_for_name.assert_called_once_with(
             mock.sentinel.id)
-        mock_validate_connection.assert_called_once_with(
+        mock_endpoint.get.assert_called_once_with(
             mock_endpoint.get_endpoint_id_for_name.return_value)
+        endpoint = mock_endpoint.get.return_value
+        mock_validate_connection.assert_called_once_with(
+            endpoint.type, endpoint.connection_info.to_dict.return_value,
+            regions=endpoint.mapped_regions)
 
     @mock.patch.object(endpoints.EndpointFormatter, 'list_objects')
     def test_take_action_not_valid(self, mock_list_objects):
@@ -531,5 +533,9 @@ class EndpointValidateConnectionTestCase(test_base.CoriolisBaseTestCase):
 
         mock_endpoint.get_endpoint_id_for_name.assert_called_once_with(
             mock.sentinel.id)
-        mock_validate_connection.assert_called_once_with(
+        mock_endpoint.get.assert_called_once_with(
             mock_endpoint.get_endpoint_id_for_name.return_value)
+        endpoint = mock_endpoint.get.return_value
+        mock_validate_connection.assert_called_once_with(
+            endpoint.type, endpoint.connection_info.to_dict.return_value,
+            regions=endpoint.mapped_regions)
